@@ -6,21 +6,15 @@ class FSNode:
         self.ip = ip
         self.port = port
         self.files = {}  # Dicionário de ficheiros que este nó possui
-        self.tracker_ip = None
-        self.tracker_port = None
+        self.tracker_ip = "127.0.0.1"
+        self.tracker_port = "9090"
 
-    def set_tracker_info(self, tracker_ip, tracker_port):
-        self.tracker_ip = tracker_ip
-        self.tracker_port = tracker_port
-
-    def connect_to_tracker(self, tracker_ip, tracker_port):
+    def connect_to_tracker(self):
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((tracker_ip, tracker_port))
-        file2 = "File1"
-        registration_data = f"REGISTER,{self.ip},{self.port},{file2}"
+        client_socket.connect((self.tracker_ip, self.tracker_port))
+        registration_data = f"REGISTER,{self.ip},{self.port},"
         client_socket.send(registration_data.encode('utf-8'))
         client_socket.close()
-        node.set_tracker_info(tracker_ip, tracker_port)
 
         print(f"Node at {self.ip}:{self.port} registered with the tracker")
 
@@ -60,11 +54,7 @@ if __name__ == "__main__":
 
     node = FSNode(node_ip, node_port)
 
-    # Configurações do rastreador
-    tracker_ip = "127.0.0.1"
-    tracker_port = 9090
-
-    node.connect_to_tracker(tracker_ip, tracker_port)
+    node.connect_to_tracker()
 
     # Exemplo de download de um ficheiro
     node.download_file("File1")

@@ -21,12 +21,8 @@ class FSTracker:
 
     def handle_node_message(self, client_socket):
         data = client_socket.recv(1024).decode('utf-8')
-        print("TESTE 1 -> " + str(data))
         if data.startswith("REGISTER"):
             _, node_ip, node_port, files = data.split(',')
-            print("TESTE 2 -> " + str(node_ip))
-            print("TESTE 3 -> " + str(node_port))
-            print("TESTE 4 -> " + str(files))
             files = files.split(';')  # Os nomes dos ficheiros são separados por ';'
             self.nodes[(node_ip, int(node_port))] = set(files)
             print(f"Node registered: {node_ip}:{node_port}")
