@@ -7,7 +7,7 @@ class FSNode:
         self.port = port
         self.files = {}  # Dicionário de ficheiros que este nó possui
         self.tracker_ip = "127.0.0.1"
-        self.tracker_port = "9090"
+        self.tracker_port = 9090
 
     def connect_to_tracker(self):
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
