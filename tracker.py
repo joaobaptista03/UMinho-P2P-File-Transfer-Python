@@ -1,7 +1,6 @@
 import socket
 import threading
 
-# Classe que representa o rastreador (FS_Tracker)
 class FSTracker:
     def __init__(self, ip, port):
         self.ip = ip
@@ -16,22 +15,25 @@ class FSTracker:
 
         while True:
             client_socket, client_address = server_socket.accept()
-            client_thread = threading.Thread(target=self.handle_node_message, args=(client_socket,))
+            print("TESTE1 -> " + str(client_address))
+            client_thread = threading.Thread(target = self.handle_node_message, args = (client_socket, client_address))
             client_thread.start()
 
-    def handle_node_message(self, client_socket):
+    def handle_node_message(self, client_socket, client_address):
+        print("cheguei")    
         data = client_socket.recv(1024).decode('utf-8')
+        print("li" + str(data))
+
         if data.startswith("REGISTER"):
             _, node_ip, node_port, files = data.split(',')
             files = files.split(';')  # Os nomes dos ficheiros são separados por ';'
             self.nodes[(node_ip, int(node_port))] = set(files)
             print(f"Node registered: {node_ip}:{node_port}")
-        else:
-            # Aqui, trata consultas de ficheiros
-            # Por exemplo, 'GET File1'
-            # Implemente a lógica para responder a consultas de ficheiros aqui
-            filename = data[4:]  # Remove "GET " para obter o nome do ficheiro
+        elif data.startswith("GET"):
+            filename = data[4:]
             nodes_with_file = [(node, files) for node, files in self.nodes.items() if filename in files]
+            print(nodes_with_file)
+            print(client_address)
             if nodes_with_file:
                 node_ip, node_port = nodes_with_file[0][0]
                 response = f"FILE_FOUND {node_ip}:{node_port}"
@@ -39,17 +41,11 @@ class FSTracker:
             else:
                 response = "FILE_NOT_FOUND"
                 client_socket.send(response.encode('utf-8'))
-
-    def query_file(self, filename):
-        # Simula a consulta do nó ao rastreador para obter informações sobre o ficheiro
-        nodes_with_file = [node for node, files in self.nodes.items() if filename in files]
-        if nodes_with_file:
-            return nodes_with_file[0]
-        return None
+        else:
+            print("Invalid Message.")
 
 if __name__ == "__main__":
-    # Configurações do rastreador
-    tracker_ip = "127.0.0.1"
+    tracker_ip = "10.4.4.1"
     tracker_port = 9090
 
     tracker = FSTracker(tracker_ip, tracker_port)
