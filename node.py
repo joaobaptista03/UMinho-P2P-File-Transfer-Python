@@ -31,6 +31,7 @@ class FSNode:
                 filename = filename[:-1]
                 sendMessage = "DOWNLOAD_RESPONSE," + filename + "," + self.read_file_content(filename)
                 self.udp_socket.sendto(sendMessage.encode('utf-8'), (sender_address[0], 9090))
+                print(f"{filename} sent to {sender_address}")
 
             if message.startswith("DOWNLOAD_RESPONSE"):
                 _, filename, response = message.split(',')
@@ -41,6 +42,7 @@ class FSNode:
         while True:
             user_input = input("Enter command (e.g., 'GET <filename>' or 'EXIT' to quit): \n")
             if user_input.upper() == "EXIT":
+                self.exit()
                 break
             elif user_input.startswith("GET "):
                 filename = user_input[4:]
@@ -62,6 +64,9 @@ class FSNode:
         files = files[:-1]
         registration_data = f"REGISTER,{self.ip},{self.port},{files}<"
         self.tcp_socket.send(registration_data.encode('utf-8'))
+
+        if self.tcp_socket.recv(1024).decode() == ("PING"):
+            self.tcp_socket.send("PING_RESPONSE".encode("utf-8"))
 
         print(f"Node at {self.ip}:{self.port} registered with the tracker")
 
@@ -98,6 +103,11 @@ class FSNode:
         with open(file_path, 'rb') as file:
             file_content = file.read()
         return file_content.decode('utf-8')
+    
+    def exit(self):
+        self.tcp_socket.send("EXIT<".encode("utf-8"))
+
+        self.udp_socket.close()
 
 if __name__ == "__main__":
     node = FSNode()
@@ -112,7 +122,3 @@ if __name__ == "__main__":
     request_listener_thread = threading.Thread(target=node.listen_for_requests, daemon=True)
     request_listener_thread.start()
     request_listener_thread.join()
-    node.tcp_socket.close()
-
-    while True:
-        pass
