@@ -1,5 +1,6 @@
 import os
 import socket
+import sys
 import threading
 
 class FSNode:
@@ -8,9 +9,9 @@ class FSNode:
         self.port = None
         self.tracker_ip = None
         self.tracker_port = None
-
         self.tcp_socket = None
         self.udp_socket = None
+        self.nodes_responsetime = None
 
     def start(self):
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -48,25 +49,24 @@ class FSNode:
                 filename = user_input[4:]
                 self.download_file(filename)
 
-    def connect_to_tracker(self, tracker_ip, tracker_port):
-        self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp_socket.connect((tracker_ip, tracker_port))
-
+    def connect_to_tracker(self, filesFolder, tracker_ip, tracker_port):
         self.tracker_ip = tracker_ip
         self.tracker_port = tracker_port
+
+        self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcp_socket.bind((self.tcp_socket.getsockname()[0], 9090))
+        self.tcp_socket.connect((tracker_ip, tracker_port))
+        
         self.ip = self.tcp_socket.getsockname()[0]
         self.port = self.tcp_socket.getsockname()[1]
 
-        file_list = os.listdir("NodeFiles")
+        file_list = os.listdir(filesFolder)
         files = ""
         for file in file_list:
             files += file + ";"
         files = files[:-1]
-        registration_data = f"REGISTER,{self.ip},{self.port},{files}<"
+        registration_data = f"REGISTER,{files}<"
         self.tcp_socket.send(registration_data.encode('utf-8'))
-
-        if self.tcp_socket.recv(1024).decode() == ("PING"):
-            self.tcp_socket.send("PING_RESPONSE".encode("utf-8"))
 
         print(f"Node at {self.ip}:{self.port} registered with the tracker")
 
@@ -76,18 +76,15 @@ class FSNode:
         return response
 
     def download_file(self, filename):
-        if not self.tracker_ip or not self.tracker_port:
-            print("Erro: informações do rastreador em falta. Conecte-se ao rastreador primeiro.")
-            return
-
         query_data = f"GET,{filename}<"
         tracker_response = self.query_tracker(query_data)
 
+
         if tracker_response.startswith("FILE_FOUND"):
-            _, node_ip_port = tracker_response.split(" ", 1)
-            node_ip, node_port = node_ip_port.split(":")
-            print(f"File '{filename}' is available at {node_ip}:{node_port}")   
-            self.download_from_node(node_ip, 9090, filename)
+            _, nodes = tracker_response.split(" ", 1)
+            nodes = nodes.split(";")
+            print(f"File '{filename}' is available at {nodes[0]}:9090")   
+            self.download_from_node(nodes[0], 9090, filename)
 
         else:
             print(f"File '{filename}' not found in the network.")
@@ -111,11 +108,9 @@ class FSNode:
 
 if __name__ == "__main__":
     node = FSNode()
+    args = sys.argv[1:]
 
-    tracker_ip = "10.4.4.1"
-    tracker_port = 9090
-
-    node.connect_to_tracker(tracker_ip, tracker_port)
+    node.connect_to_tracker(args[0], args[1], int(args[2]))
 
     node.start()
 
