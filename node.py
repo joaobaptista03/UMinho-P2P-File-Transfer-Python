@@ -2,6 +2,7 @@ import os
 import socket
 import sys
 import threading
+import time
 
 class FSNode:
     def __init__(self):
@@ -11,7 +12,7 @@ class FSNode:
         self.tracker_port = None
         self.tcp_socket = None
         self.udp_socket = None
-        self.nodes_responsetime = None # Implementar
+        self.nodes_responsetime = {}
 
     def start(self):
         self.connect_to_tracker(args[0], args[1], int(args[2]))
@@ -44,7 +45,16 @@ class FSNode:
                             filename = file_and_nodes[0]
                             nodes = file_and_nodes[1].split(";")
 
-                            print(f"File '{filename}' is available at {nodes[0]}:9090")
+                            fastest_node = nodes[0]
+                            for node in nodes:
+                                if node not in self.nodes_responsetime:
+                                    self.udp_socket.sendto(f"PING;{str(time.time())}<".encode('utf-8'), (node, 9090))
+                                while node not in self.nodes_responsetime:
+                                    time.sleep(0.1)
+                                if self.nodes_responsetime[node] < self.nodes_responsetime[fastest_node]:
+                                    fastest_node = node
+
+                            print(f"File '{filename}' is available at {fastest_node}:9090")
                             
                             self.udp_socket.sendto(f"DOWNLOAD_REQUEST,{filename}<".encode('utf-8'), (nodes[0], 9090))
 
@@ -59,6 +69,7 @@ class FSNode:
             
             if not chunk:
                 break
+
 
     def handle_node_message(self):
         data = ""
@@ -89,6 +100,18 @@ class FSNode:
                                 file.write(response.encode("utf-8"))
 
                             print(f"File '{filename}' downloaded from {sender_address[0]}:9090")
+
+                        elif message.startswith("PING"):
+                            _, start_time = message.split(';')
+                            self.udp_socket.sendto(f"PRESPONSE;{start_time}<".encode('utf-8'), (sender_address[0], 9090))
+
+                        elif message.startswith("PRESPONSE"):
+                            _, start_time = message.split(';')
+                            start_time_float = float(start_time)
+                            time_diff = time.time() - start_time_float
+
+                            self.nodes_responsetime[sender_address[0]] = time_diff
+
                         else:
                             print("Invalid Message.")
 
