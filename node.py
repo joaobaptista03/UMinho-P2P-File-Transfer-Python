@@ -11,43 +11,103 @@ class FSNode:
         self.tracker_port = None
         self.tcp_socket = None
         self.udp_socket = None
-        self.nodes_responsetime = None
+        self.nodes_responsetime = None # Implementar
 
     def start(self):
+        self.connect_to_tracker(args[0], args[1], int(args[2]))
+
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind((self.ip, 9090))
 
-        udp_listener_thread = threading.Thread(target=self.listen_for_udp_messages, daemon=True)
-        udp_listener_thread.start()
-
-    def listen_for_udp_messages(self):
+        threading.Thread(target=self.handle_node_message, daemon=True).start()
+        threading.Thread(target=self.handle_tracker_message, daemon=True).start()
+        
+        th = threading.Thread(target=self.listen_for_requests, daemon=True)
+        th.start()
+        th.join()
+    
+    def handle_tracker_message(self):
+        data = ""
         while True:
-            data, sender_address = self.udp_socket.recvfrom(1024)
-            if not data:
-                break
-            message = data.decode('utf-8')
-            
-            if message.startswith("DOWNLOAD_REQUEST"):
-                _, filename = message.split(',')
-                filename = filename[:-1]
-                sendMessage = "DOWNLOAD_RESPONSE," + filename + "," + self.read_file_content(filename)
-                self.udp_socket.sendto(sendMessage.encode('utf-8'), (sender_address[0], 9090))
-                print(f"{filename} sent to {sender_address}")
+            chunk = self.tcp_socket.recv(1024).decode('utf-8')
+            data += chunk
+        
+            if '<' in data:
+                messages = data.split('<')
+                for message in messages:
+                    if message:
+                        print(f"Received message from tracker: {message}")
 
-            if message.startswith("DOWNLOAD_RESPONSE"):
-                _, filename, response = message.split(',')
-                with open(f"NodeFiles/{filename}", 'wb') as file:
-                    file.write(response.encode("utf-8"))
+                        if message.startswith("FILE_FOUND"):
+                            _, info = message.split(" ", 1)
+                            file_and_nodes = info.split("~")
+                            filename = file_and_nodes[0]
+                            nodes = file_and_nodes[1].split(";")
+
+                            print(f"File '{filename}' is available at {nodes[0]}:9090")
+                            
+                            self.udp_socket.sendto(f"DOWNLOAD_REQUEST,{filename}<".encode('utf-8'), (nodes[0], 9090))
+
+                        elif message.startswith("FILE_NOT_FOUND"):
+                            _, filename = message.split(" ", 1)
+                            print(f"File '{filename}' not found in the network.")
+                            
+                        else:
+                            print("Invalid Message.")
+
+                data = ""
+            
+            if not chunk:
+                break
+
+    def handle_node_message(self):
+        data = ""
+        while True:
+            chunk, sender_address = self.udp_socket.recvfrom(1024)
+            data += chunk.decode('utf-8')
+        
+            if '<' in data:
+                messages = data.split('<')
+                for message in messages:
+                    if message:
+                        print(f"Received message from node {sender_address[0]}: {message}")
+
+                        if message.startswith("DOWNLOAD_REQUEST"):
+                            _, filename = message.split(',')
+
+                            file_path = os.path.join("NodeFiles", filename)
+                            file_content = open(file_path, 'rb').read().decode("utf-8")
+
+                            sendMessage = "DOWNLOAD_RESPONSE~" + filename + "~" + file_content + "<"
+                            self.udp_socket.sendto(sendMessage.encode('utf-8'), (sender_address[0], 9090))
+                            print(f"{filename} sent to {sender_address}")
+
+                        elif message.startswith("DOWNLOAD_RESPONSE"):
+                            _, filename, response = message.split('~', 2)
+
+                            with open(f"NodeFiles/{filename}", 'wb') as file:
+                                file.write(response.encode("utf-8"))
+
+                            print(f"File '{filename}' downloaded from {sender_address[0]}:9090")
+                        else:
+                            print("Invalid Message.")
+
+                data = ""
+            
+            if not chunk:
+                break
 
     def listen_for_requests(self):
         while True:
             user_input = input("Enter command (e.g., 'GET <filename>' or 'EXIT' to quit): \n")
-            if user_input.upper() == "EXIT":
-                self.exit()
-                break
-            elif user_input.startswith("GET "):
+            if user_input.startswith("GET"):
                 filename = user_input[4:]
-                self.download_file(filename)
+                self.tcp_socket.send(f"GET,{filename}<".encode('utf-8'))
+
+            elif user_input.upper() == "EXIT":
+                self.tcp_socket.send("EXIT<".encode("utf-8"))
+                self.udp_socket.close()
+                break
 
     def connect_to_tracker(self, filesFolder, tracker_ip, tracker_port):
         self.tracker_ip = tracker_ip
@@ -70,50 +130,8 @@ class FSNode:
 
         print(f"Node at {self.ip}:{self.port} registered with the tracker")
 
-    def query_tracker(self, query_data):
-        self.tcp_socket.send(query_data.encode('utf-8'))
-        response = self.tcp_socket.recv(1024).decode('utf-8')
-        return response
-
-    def download_file(self, filename):
-        query_data = f"GET,{filename}<"
-        tracker_response = self.query_tracker(query_data)
-
-
-        if tracker_response.startswith("FILE_FOUND"):
-            _, nodes = tracker_response.split(" ", 1)
-            nodes = nodes.split(";")
-            print(f"File '{filename}' is available at {nodes[0]}:9090")   
-            self.download_from_node(nodes[0], 9090, filename)
-
-        else:
-            print(f"File '{filename}' not found in the network.")
-    
-    def download_from_node(self, node_ip, node_port, filename):
-        request_message = f"DOWNLOAD_REQUEST,{filename}<"
-        self.udp_socket.sendto(request_message.encode('utf-8'), (node_ip, node_port))
-
-        print(f"File '{filename}' downloaded from {node_ip}:{node_port}")
-
-    def read_file_content(self, filename):
-        file_path = os.path.join("NodeFiles", filename)
-        with open(file_path, 'rb') as file:
-            file_content = file.read()
-        return file_content.decode('utf-8')
-    
-    def exit(self):
-        self.tcp_socket.send("EXIT<".encode("utf-8"))
-
-        self.udp_socket.close()
-
 if __name__ == "__main__":
-    node = FSNode()
     args = sys.argv[1:]
 
-    node.connect_to_tracker(args[0], args[1], int(args[2]))
-
+    node = FSNode()
     node.start()
-
-    request_listener_thread = threading.Thread(target=node.listen_for_requests, daemon=True)
-    request_listener_thread.start()
-    request_listener_thread.join()

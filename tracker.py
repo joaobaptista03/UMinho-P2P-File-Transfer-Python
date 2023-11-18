@@ -50,7 +50,7 @@ class FSTracker:
                                 for (node, files) in nodes_with_file:
                                     nodeResult += node + ";"
                                 nodeResult = nodeResult[:-1]
-                                response = f"FILE_FOUND {nodeResult}"
+                                response = f"FILE_FOUND {filename}~{nodeResult}<"
                                 client_socket.send(response.encode('utf-8'))
 
                                 if client_address[0] in self.node_files:
@@ -59,12 +59,13 @@ class FSTracker:
                                     self.node_files[client_address[0]] = {filename}
 
                             else:
-                                response = "FILE_NOT_FOUND"
+                                response = f"FILE_NOT_FOUND {filename}<"
                                 client_socket.send(response.encode('utf-8'))
 
                         elif message.startswith("EXIT"):
                             print("Node " + client_address[0] + " exited.")
-                            del self.node_files[client_address[0]]
+                            if client_address[0] in self.node_files:
+                                del self.node_files[client_address[0]]
                             client_socket.close()
 
                             exitFlag = True
@@ -80,8 +81,5 @@ class FSTracker:
 if __name__ == "__main__":
     args = sys.argv[1:]
 
-    tracker_ip = args[0]
-    tracker_port = int(args[1])
-
-    tracker = FSTracker(tracker_ip, tracker_port)
+    tracker = FSTracker(args[0], int(args[1]))
     tracker.start()
