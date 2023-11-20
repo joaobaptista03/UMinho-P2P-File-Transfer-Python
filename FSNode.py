@@ -5,7 +5,7 @@ import threading
 import time
 
 class FSNode:
-    def __init__(self):
+    def __init__(self, node_name):
         """
         Initializes a new instance of the FSNode class.
         """
@@ -16,14 +16,16 @@ class FSNode:
         self.tcp_socket = None
         self.udp_socket = None
         self.nodes_responsetime = {}
+        self.name = node_name
+        self.tracker_name = None
 
-    def start(self):
+    def start(self, files_folder, tracker_ip, tracker_port, node_name):
         """
         Starts the FSNode by connecting to the tracker, binding the UDP socket,
         and starting the necessary threads for handling node and tracker messages,
         as well as listening for requests.
         """
-        self.connect_to_tracker(args[0], args[1], int(args[2]))
+        self.connect_to_tracker(files_folder, tracker_ip, tracker_port, node_name)
 
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind((self.ip, 9090))
@@ -36,7 +38,7 @@ class FSNode:
         th.start()
         th.join()
 
-    def connect_to_tracker(self, files_folder, tracker_ip, tracker_port):
+    def connect_to_tracker(self, files_folder, tracker_ip, tracker_port, node_name):
         """
         Connects the FSNode to the tracker and registers the files in the specified folder.
 
@@ -59,9 +61,9 @@ class FSNode:
         self.port = self.tcp_socket.getsockname()[1]
 
         files_str = self.get_files_list_string(files_folder)
-        self.send_tracker_message(f"REGISTER,{files_str}")
+        self.send_tracker_message(f"REGISTER,{node_name},{files_str}")
 
-        print(f"Node at {self.ip}:{self.port} registered with the tracker with the files: {files_str}")
+        print(f"{self.name} at {self.ip}:{self.port} registered in {self.tracker_name} with the files: {files_str}")
 
     def get_files_list_string(self, files_folder):
         """
@@ -101,9 +103,15 @@ class FSNode:
                 messages = data.split('<')
                 for message in messages:
                     if message:
-                        print(f"Received message from tracker: {message}")
+                        if self.tracker_name is not None:
+                            print(f"Received message from {self.tracker_name}: {message}")
 
-                        if message.startswith("FILE_FOUND"):
+                        if message.startswith("REGISTERED") and self.tracker_name is None:
+                            _,tracker_name = message.split(',')
+                            self.tracker_name = tracker_name
+                            print(f"Received Tracker register message from {tracker_name}: {message}")
+
+                        elif message.startswith("FILE_FOUND"):
                             (filename, fastest_node) = self.request_download(message)
                             print(f"File '{filename}' is available at {fastest_node}:9090")
 
@@ -315,7 +323,7 @@ class FSNode:
             None
         """
         self.tcp_socket.send((message + "<").encode('utf-8'))
-        print(f"Sent \"{message}\" to tracker")
+        print(f"Sent \"{message}\" to {self.tracker_name}")
 
     def send_node_message(self, message, node_address):
         """
@@ -334,5 +342,5 @@ class FSNode:
 if __name__ == "__main__":
     args = sys.argv[1:]
 
-    node = FSNode()
-    node.start()
+    node = FSNode(args[3])
+    node.start(args[0], args[1], int(args[2]), args[3])

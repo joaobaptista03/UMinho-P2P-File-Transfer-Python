@@ -3,7 +3,7 @@ import sys
 import threading
 
 class FSTracker:
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, tracker_name):
         """
         Initialize a new FSTracker object.
 
@@ -14,6 +14,8 @@ class FSTracker:
         self.ip = ip
         self.port = port
         self.node_files = {}
+        self.ip_to_node_name = {}
+        self.name = tracker_name
 
     def start(self):
         """
@@ -23,7 +25,7 @@ class FSTracker:
         server_socket.bind((self.ip, self.port))
         server_socket.listen(5)
 
-        print(f"Tracker listening on {self.ip}:{self.port}")
+        print(f"{self.name} listening on {self.ip}:{self.port}")
 
         while True:
             client_socket, client_address = server_socket.accept()
@@ -51,19 +53,21 @@ class FSTracker:
                 messages = data.split('<')
                 for message in messages:
                     if message:
-                        print(f"Received message from {client_address}: {message}")
+                        if client_address[0] in self.ip_to_node_name:
+                            print(f"Received message from {self.ip_to_node_name[client_address[0]]}: {message}")
 
-                        if message.startswith("REGISTER"):
-                            _, files = message.split(',')
-                            self.register_node(files, client_address)
+                        if message.startswith("REGISTER") and client_address[0] not in self.ip_to_node_name:
+                            _, node_name, files = message.split(',')
+                            self.register_node(files, client_address, node_name, client_socket)
 
-                            print(f"Node registered: {client_address[0]}:{client_address[1]} with the files: {files}")
+                            print(f"Received Node register message from {self.ip_to_node_name[client_address[0]]}: {message}")
+                            print(f"Node \"{node_name}\" registered ({client_address[0]}:{client_address[1]}) with the files: {files}")
 
                         elif message.startswith("GET"):
                             filename = message[4:]
                             self.send_nodes_to_node(filename, client_address, client_socket)
 
-                            print(f"Nodes that contain the file {filename} sent to {client_address}")
+                            print(f"Nodes that contain the file {filename} sent to {self.ip_to_node_name[client_address[0]]}")
 
                         elif message.startswith("EXIT"):
                             if client_address[0] in self.node_files:
@@ -71,7 +75,7 @@ class FSTracker:
                             client_socket.close()
                             exitFlag = True
 
-                            print("Node " + client_address[0] + " exited.")
+                            print("Node " + self.ip_to_node_name[client_address[0]] + " exited.")
 
                         else:
                             print("Invalid Message.")
@@ -81,7 +85,7 @@ class FSTracker:
             if not chunk:
                 break
 
-    def register_node(self, files, client_address):
+    def register_node(self, files, client_address, node_name, client_socket):
         """
         Registers a node with the given files.
 
@@ -92,9 +96,14 @@ class FSTracker:
         Returns:
             None
         """
+        self.ip_to_node_name[client_address[0]] = node_name
+        client_socket.send(f"REGISTERED,{self.name}<".encode('utf-8'))
+
         if len(files) > 0:
             files_list = files.split(';')
             self.node_files[client_address[0]] = set(files_list)
+
+        
 
     def send_nodes_to_node(self, filename, client_address, client_socket):
         """
@@ -144,5 +153,5 @@ class FSTracker:
 if __name__ == "__main__":
     args = sys.argv[1:]
 
-    tracker = FSTracker(args[0], int(args[1]))
+    tracker = FSTracker(args[0], int(args[1]), args[2])
     tracker.start()
