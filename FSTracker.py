@@ -37,20 +37,22 @@ class FSTracker:
                             _, files = message.split(',')
                             self.register_node(files, client_address)
 
-                            print(f"Node registered: {client_address[0]}:{client_address[1]}")
+                            print(f"Node registered: {client_address[0]}:{client_address[1]} with the files: {files}")
 
                         elif message.startswith("GET"):
                             filename = message[4:]
                             self.send_nodes_to_node(filename, client_address, client_socket)
 
+                            print(f"Nodes that contain the file {filename} sent to {client_address}")
+
                         elif message.startswith("EXIT"):
-                            print("Node " + client_address[0] + " exited.")
                             if client_address[0] in self.node_files:
                                 del self.node_files[client_address[0]]
                             client_socket.close()
-
                             exitFlag = True
-                            
+
+                            print("Node " + client_address[0] + " exited.")
+
                         else:
                             print("Invalid Message.")
 

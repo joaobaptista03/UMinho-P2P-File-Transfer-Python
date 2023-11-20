@@ -39,11 +39,14 @@ class FSNode:
         self.ip = self.tcp_socket.getsockname()[0]
         self.port = self.tcp_socket.getsockname()[1]
 
-        self.send_tracker_message(self.get_files_list_string(files_folder))
+        files_str = self.get_files_list_string(files_folder)
+        self.send_tracker_message(f"REGISTER,{files_str}")
 
-        print(f"Node at {self.ip}:{self.port} registered with the tracker")
+        print(f"Node at {self.ip}:{self.port} registered with the tracker with the files: {files_str}")
 
     def get_files_list_string(self, files_folder):
+        if not os.path.exists(files_folder):
+            os.makedirs(files_folder)
         file_list = os.listdir(files_folder)
         files = ""
 
@@ -51,7 +54,7 @@ class FSNode:
             files += file + ";"
         files = files[:-1]
         
-        return f"REGISTER,{files}"
+        return files
     
     def handle_tracker_message(self):
         data = ""
@@ -66,7 +69,8 @@ class FSNode:
                         print(f"Received message from tracker: {message}")
 
                         if message.startswith("FILE_FOUND"):
-                            self.request_download(message)
+                            (filename, fastest_node) = self.request_download(message)
+                            print(f"File '{filename}' is available at {fastest_node}:9090")
 
                         elif message.startswith("FILE_NOT_FOUND"):
                             _, filename = message.split(" ", 1)
@@ -90,19 +94,22 @@ class FSNode:
         if len(nodes) > 1:
             fastest_node = self.get_fastest_node(nodes)
 
-        print(f"File '{filename}' is available at {fastest_node}:9090")
-
         self.send_node_message(f"DOWNLOAD_REQUEST,{filename}", fastest_node)
+        return (filename, fastest_node)
     
     def get_fastest_node(self, nodes):
         fastest_node = nodes[0]
         for node in nodes:
-            if node not in self.nodes_responsetime:
-                self.send_node_message(f"PING;{str(time.time())}", node)
-            while node not in self.nodes_responsetime:
-                time.sleep(0.1)
+            self.send_node_message(f"PING;{str(time.time())}", node)
+
+        while len(nodes) > len(self.nodes_responsetime):
+            time.sleep(0.1)
+
+        for node in nodes:
             if self.nodes_responsetime[node] < self.nodes_responsetime[fastest_node]:
                 fastest_node = node
+        
+        self.get_fastest_node.clear()
         
         return fastest_node
 
