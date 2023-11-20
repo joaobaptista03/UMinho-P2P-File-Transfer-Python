@@ -5,40 +5,42 @@ import threading
 import time
 
 class FSNode:
-    def __init__(self, node_name):
+    def __init__(self, node_name, files_folder, tracker_ip, tracker_port):
         """
         Initializes a new instance of the FSNode class.
         """
+        self.name = node_name
         self.ip = None
         self.port = None
-        self.tracker_ip = None
-        self.tracker_port = None
+        self.files_folder = files_folder
+
+        self.tracker_name = None
+        self.tracker_ip = tracker_ip
+        self.tracker_port = tracker_port
+
         self.tcp_socket = None
         self.udp_socket = None
-        self.nodes_responsetime = {}
-        self.name = node_name
-        self.tracker_name = None
 
-    def start(self, files_folder, tracker_ip, tracker_port, node_name):
+        self.nodes_responsetime = {}
+
+    def start(self):
         """
         Starts the FSNode by connecting to the tracker, binding the UDP socket,
         and starting the necessary threads for handling node and tracker messages,
         as well as listening for requests.
         """
-        self.connect_to_tracker(files_folder, tracker_ip, tracker_port, node_name)
+        self.connect_to_tracker()
 
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind((self.ip, 9090))
 
         threading.Thread(target=self.handle_node_message, daemon=True).start()
-        
         threading.Thread(target=self.handle_tracker_message, daemon=True).start()
-
         th = threading.Thread(target=self.listen_for_requests, daemon=True)
         th.start()
         th.join()
 
-    def connect_to_tracker(self, files_folder, tracker_ip, tracker_port, node_name):
+    def connect_to_tracker(self):
         """
         Connects the FSNode to the tracker and registers the files in the specified folder.
 
@@ -50,34 +52,29 @@ class FSNode:
         Returns:
             None
         """
-        self.tracker_ip = tracker_ip
-        self.tracker_port = tracker_port
 
         self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcp_socket.bind((self.tcp_socket.getsockname()[0], 9090))
-        self.tcp_socket.connect((tracker_ip, tracker_port))
+        self.tcp_socket.connect((self.tracker_ip, self.tracker_port))
         
         self.ip = self.tcp_socket.getsockname()[0]
         self.port = self.tcp_socket.getsockname()[1]
 
-        files_str = self.get_files_list_string(files_folder)
-        self.send_tracker_message(f"REGISTER,{node_name},{files_str}")
+        files_str = self.get_files_list_string(self.files_folder)
+        self.send_tracker_message(f"REGISTER,{self.node_name},{files_str}")
 
         print(f"{self.name} at {self.ip}:{self.port} registered in {self.tracker_name} with the files: {files_str}")
 
-    def get_files_list_string(self, files_folder):
+    def get_files_list_string(self):
         """
-        Returns a string containing the names of all files in the specified folder.
-
-        Args:
-            files_folder (str): The path to the folder.
+        Returns a string containing the names of all files in the files folder, and creates the folder if it does not exist.
 
         Returns:
             str: A string containing the names of all files in the folder, separated by semicolons.
         """
-        if not os.path.exists(files_folder):
-            os.makedirs(files_folder)
-        file_list = os.listdir(files_folder)
+        if not os.path.exists(self.files_folder):
+            os.makedirs(self.files_folder)
+        file_list = os.listdir(self.files_folder)
         files = ""
 
         for file in file_list:
@@ -107,7 +104,7 @@ class FSNode:
                             print(f"Received message from {self.tracker_name}: {message}")
 
                         if message.startswith("REGISTERED") and self.tracker_name is None:
-                            _,tracker_name = message.split(',')
+                            _, tracker_name = message.split(',')
                             self.tracker_name = tracker_name
                             print(f"Received Tracker register message from {tracker_name}: {message}")
 
@@ -132,7 +129,7 @@ class FSNode:
         Requests a download of a file from the fastest node.
 
         Args:
-            message (str): The message containing the file information and available nodes.
+            message (str): The message containing the file name and available nodes.
 
         Returns:
             tuple: A tuple containing the filename and the fastest node.
@@ -342,5 +339,10 @@ class FSNode:
 if __name__ == "__main__":
     args = sys.argv[1:]
 
-    node = FSNode(args[3])
-    node.start(args[0], args[1], int(args[2]), args[3])
+    files_folder = args[0]
+    tracker_ip = args[1]
+    tracker_port = int(args[2])
+    node_name = args[3]
+
+    node = FSNode(node_name, files_folder, tracker_ip, tracker_port)
+    node.start()
