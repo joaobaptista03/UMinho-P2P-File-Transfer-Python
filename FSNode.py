@@ -6,6 +6,9 @@ import time
 
 class FSNode:
     def __init__(self):
+        """
+        Initializes a new instance of the FSNode class.
+        """
         self.ip = None
         self.port = None
         self.tracker_ip = None
@@ -15,6 +18,11 @@ class FSNode:
         self.nodes_responsetime = {}
 
     def start(self):
+        """
+        Starts the FSNode by connecting to the tracker, binding the UDP socket,
+        and starting the necessary threads for handling node and tracker messages,
+        as well as listening for requests.
+        """
         self.connect_to_tracker(args[0], args[1], int(args[2]))
 
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -29,6 +37,17 @@ class FSNode:
         th.join()
 
     def connect_to_tracker(self, files_folder, tracker_ip, tracker_port):
+        """
+        Connects the FSNode to the tracker and registers the files in the specified folder.
+
+        Args:
+            files_folder (str): The path to the folder containing the files to be registered.
+            tracker_ip (str): The IP address of the tracker.
+            tracker_port (int): The port number of the tracker.
+
+        Returns:
+            None
+        """
         self.tracker_ip = tracker_ip
         self.tracker_port = tracker_port
 
@@ -45,6 +64,15 @@ class FSNode:
         print(f"Node at {self.ip}:{self.port} registered with the tracker with the files: {files_str}")
 
     def get_files_list_string(self, files_folder):
+        """
+        Returns a string containing the names of all files in the specified folder.
+
+        Args:
+            files_folder (str): The path to the folder.
+
+        Returns:
+            str: A string containing the names of all files in the folder, separated by semicolons.
+        """
         if not os.path.exists(files_folder):
             os.makedirs(files_folder)
         file_list = os.listdir(files_folder)
@@ -57,11 +85,18 @@ class FSNode:
         return files
     
     def handle_tracker_message(self):
+        """
+        Handles the incoming messages from the tracker.
+        Receives messages from the tracker and processes them accordingly.
+        If the message is 'FILE_FOUND', it requests the download of the file from the fastest node.
+        If the message is 'FILE_NOT_FOUND', it notifies that the file is not found in the network.
+        Prints an error message for any other invalid message received.
+        """
         data = ""
         while True:
             chunk = self.tcp_socket.recv(1024).decode('utf-8')
             data += chunk
-        
+
             if '<' in data:
                 messages = data.split('<')
                 for message in messages:
@@ -75,16 +110,25 @@ class FSNode:
                         elif message.startswith("FILE_NOT_FOUND"):
                             _, filename = message.split(" ", 1)
                             print(f"File '{filename}' not found in the network.")
-                            
+
                         else:
                             print("Invalid Message.")
 
                 data = ""
-            
+
             if not chunk:
                 break
 
     def request_download(self, message):
+        """
+        Requests a download of a file from the fastest node.
+
+        Args:
+            message (str): The message containing the file information and available nodes.
+
+        Returns:
+            tuple: A tuple containing the filename and the fastest node.
+        """
         _, info = message.split(" ", 1)
         file_and_nodes = info.split("~")
         filename = file_and_nodes[0]
@@ -98,6 +142,15 @@ class FSNode:
         return (filename, fastest_node)
     
     def get_fastest_node(self, nodes):
+        """
+        Returns the fastest node from the given list of nodes.
+
+        Parameters:
+        - nodes (list): A list of nodes to compare.
+
+        Returns:
+        - fastest_node: The fastest node from the given list.
+        """
         fastest_node = nodes[0]
         for node in nodes:
             self.send_node_message(f"PING;{str(time.time())}", node)
@@ -109,16 +162,31 @@ class FSNode:
             if self.nodes_responsetime[node] < self.nodes_responsetime[fastest_node]:
                 fastest_node = node
         
-        self.get_fastest_node.clear()
+        self.nodes_responsetime.clear()
         
         return fastest_node
 
     def handle_node_message(self):
+        """
+        Handles the incoming messages from other nodes.
+
+        Receives messages from other nodes and performs the appropriate actions based on the message type.
+        The supported message types are:
+        - DOWNLOAD_REQUEST: Sends the requested file to the sender node.
+        - DOWNLOAD_RESPONSE: Writes the downloaded file from the sender node.
+        - PING: Sends a ping response to the sender node.
+        - PRESPONSE: Sets the response time for the ping request.
+
+        Invalid messages are ignored.
+
+        Returns:
+        None
+        """
         data = ""
         while True:
             chunk, sender_address = self.udp_socket.recvfrom(1024)
             data += chunk.decode('utf-8')
-        
+
             if '<' in data:
                 messages = data.split('<')
                 for message in messages:
@@ -139,9 +207,9 @@ class FSNode:
                         elif message.startswith("PING"):
                             _, start_time = message.split(';')
                             self.send_presponse(start_time, sender_address)
-                            
+
                             print(f"Ping response sent to {sender_address}")
-                        
+
                         elif message.startswith("PRESPONSE"):
                             _, start_time = message.split(';')
                             self.set_response_time(float(start_time), sender_address)
@@ -150,11 +218,21 @@ class FSNode:
                             print("Invalid Message.")
 
                 data = ""
-            
+
             if not chunk:
                 break
 
     def send_file(self, filename, sender_address):
+        """
+        Sends a file to the specified sender address.
+
+        Args:
+            filename (str): The name of the file to send.
+            sender_address (tuple): The address of the sender in the format (ip, port).
+
+        Returns:
+            None
+        """
         file_path = os.path.join("NodeFiles", filename)
         file_content = open(file_path, 'rb').read().decode("utf-8")
 
@@ -162,17 +240,58 @@ class FSNode:
         self.send_node_message(sendMessage, sender_address[0])
 
     def write_file(self, filename, response):
+        """
+        Writes the given response to a file with the specified filename.
+
+        Args:
+            filename (str): The name of the file to write.
+            response (str): The content to write to the file.
+
+        Returns:
+            None
+        """
         with open(f"NodeFiles/{filename}", 'wb') as file:
             file.write(response.encode("utf-8"))
 
     def send_presponse(self, start_time, sender_address):
+        """
+        Sends a PRESPONSE message to the specified sender address.
+
+        Args:
+            start_time (float): The start time of the request.
+            sender_address (str): The address of the sender.
+
+        Returns:
+            None
+        """
         self.send_node_message(f"PRESPONSE;{start_time}", sender_address[0])
 
     def set_response_time(self, start_time, sender_address):
+        """
+        Sets the response time for a specific sender address.
+
+        Args:
+            start_time (float): The start time of the request.
+            sender_address (str): The address of the sender.
+
+        Returns:
+            None
+        """
         time_diff = time.time() - start_time
-        self.nodes_responsetime[sender_address] = time_diff
+        self.nodes_responsetime[sender_address[0]] = time_diff
 
     def listen_for_requests(self):
+        """
+        Listens for user requests and performs corresponding actions.
+
+        The function prompts the user to enter a command, such as 'GET <filename>' or 'EXIT' to quit.
+        It continuously listens for user input and performs the following actions:
+        - If the user input starts with 'GET', it extracts the filename and sends a tracker message with the command.
+        - If the user input is 'EXIT' (case-insensitive), it sends a tracker message with the command and closes the UDP socket.
+
+        Returns:
+            None
+        """
         print("Enter command (e.g., 'GET <filename>' or 'EXIT' to quit): \n")
         while True:
             user_input = input()
@@ -186,10 +305,29 @@ class FSNode:
                 break
 
     def send_tracker_message(self, message):
+        """
+        Sends a message to the tracker.
+
+        Args:
+            message (str): The message to be sent.
+
+        Returns:
+            None
+        """
         self.tcp_socket.send((message + "<").encode('utf-8'))
         print(f"Sent \"{message}\" to tracker")
 
     def send_node_message(self, message, node_address):
+        """
+        Sends a message to a specified node address.
+
+        Args:
+            message (str): The message to be sent.
+            node_address (str): The address of the node to send the message to.
+
+        Returns:
+            None
+        """
         self.udp_socket.sendto((message + "<").encode('utf-8'), (node_address, 9090))
         print(f"Sent \"{message}\" to {node_address}:9090")
 
