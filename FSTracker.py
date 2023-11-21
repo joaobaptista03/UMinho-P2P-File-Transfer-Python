@@ -41,11 +41,8 @@ class FSTracker:
         Handles the messages received from a node.
 
         Args:
-            node_socket (socket): The socket object for communication with the node.
-            node_address (tuple): The address of the node.
-
-        Returns:
-            None
+            node_socket (socket): The socket object for the node.
+            node_address (tuple): The address of the node (IP address, port number).
         """
         data = ""
         exitFlag = False
@@ -88,11 +85,13 @@ class FSTracker:
 
     def register_node(self, files, node_address, node_name, node_socket):
         """
-        Registers a node with the given files.
+        Registers a node with the given information.
 
         Args:
-            files (str): A string containing the files separated by ';'.
-            node_address (tuple): The address of the node.
+            files (str): A string containing the files associated with the node, separated by ';'.
+            node_address (tuple): The address of the node (IP address, port number).
+            node_name (str): The name of the node.
+            node_socket (socket): The socket object for communication with the node.
 
         Returns:
             None

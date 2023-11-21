@@ -44,11 +44,6 @@ class FSNode:
         """
         Connects the FSNode to the tracker and registers the files in the specified folder.
 
-        Args:
-            files_folder (str): The path to the folder containing the files to be registered.
-            tracker_ip (str): The IP address of the tracker.
-            tracker_port (int): The port number of the tracker.
-
         Returns:
             None
         """
@@ -123,10 +118,10 @@ class FSNode:
         Requests a download of a file from the fastest node.
 
         Args:
-            message (str): The message containing the file name and available nodes.
+            message (str): The message containing the file information and node IPs.
 
         Returns:
-            tuple: A tuple containing the filename and the fastest node.
+            str: The filename of the requested file.
         """
         _, info = message.split(" ", 1)
         file_and_nodes = info.split("~")
@@ -237,11 +232,12 @@ class FSNode:
 
     def write_file(self, filename, response, node_name):
         """
-        Writes the given response to a file with the specified filename.
+        Writes the response to a file with the given filename in the NodeFiles directory.
 
         Args:
-            filename (str): The name of the file to write.
-            response (str): The content to write to the file.
+            filename (str): The name of the file to be written.
+            response (str): The content to be written to the file.
+            node_name (str): The name of the node from which the file is downloaded.
 
         Returns:
             None
@@ -315,11 +311,11 @@ class FSNode:
 
     def send_node_message(self, message, node):
         """
-        Sends a message to a specified node address.
+        Sends a message to a specified node using UDP socket.
 
         Args:
             message (str): The message to be sent.
-            node ((str, str)): The address and the name of the node to send the message to.
+            node (str): The IP address of the destination node.
 
         Returns:
             None
