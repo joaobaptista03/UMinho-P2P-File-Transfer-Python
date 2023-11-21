@@ -60,10 +60,8 @@ class FSNode:
         self.ip = self.tcp_socket.getsockname()[0]
         self.port = self.tcp_socket.getsockname()[1]
 
-        files_str = self.get_files_list_string(self.files_folder)
-        self.send_tracker_message(f"REGISTER,{self.node_name},{files_str}")
-
-        print(f"{self.name} at {self.ip}:{self.port} registered in {self.tracker_name} with the files: {files_str}")
+        files_str = self.get_files_list_string()
+        self.send_tracker_message(f"REGISTER,{self.name},{files_str}")
 
     def get_files_list_string(self):
         """
@@ -100,17 +98,13 @@ class FSNode:
                 messages = data.split('<')
                 for message in messages:
                     if message:
-                        if self.tracker_name is not None:
-                            print(f"Received message from {self.tracker_name}: {message}")
-
                         if message.startswith("REGISTERED") and self.tracker_name is None:
                             _, tracker_name = message.split(',')
                             self.tracker_name = tracker_name
-                            print(f"Received Tracker register message from {tracker_name}: {message}")
+                            print(f"{self.name} at {self.ip}:{self.port} registered in {self.tracker_name} with the files: {self.get_files_list_string()}")
 
                         elif message.startswith("FILE_FOUND"):
-                            (filename, fastest_node_name) = self.request_download(message)
-                            print(f"File '{filename}' is available at {fastest_node_name}")
+                            filename = self.request_download(message)
 
                         elif message.startswith("FILE_NOT_FOUND"):
                             _, filename = message.split(" ", 1)
@@ -138,14 +132,14 @@ class FSNode:
         file_and_nodes = info.split("~")
         filename = file_and_nodes[0]
         nodes_ip = file_and_nodes[1].split(";")
-        nodes_name = file_and_nodes[2].split(";")
 
-        fastest_node = (nodes_ip[0], 0)
+        fastest_node = nodes_ip[0]
         if len(nodes_ip) > 1:
             fastest_node = self.get_fastest_node(nodes_ip)
 
-        self.send_node_message(f"DOWNLOAD_REQUEST,{filename}", fastest_node[0])
-        return (filename, nodes_name[fastest_node[1]])
+        self.send_node_message(f"DOWNLOAD_REQUEST,{filename},{self.name}", fastest_node)
+        print("sent " + f"DOWNLOAD_REQUEST,{filename},{self.name}" + " to " + fastest_node)
+        return filename
     
     def get_fastest_node(self, nodes):
         """
@@ -170,7 +164,7 @@ class FSNode:
         
         self.nodes_responsetime.clear()
         
-        return (fastest_node, nodes.index(fastest_node))
+        return fastest_node
 
     def handle_node_message(self):
         """
@@ -197,18 +191,14 @@ class FSNode:
                 messages = data.split('<')
                 for message in messages:
                     if message:
-                        print(f"Received message from node {sender_address[0]}: {message}")
-
                         if message.startswith("DOWNLOAD_REQUEST"):
-                            _, filename = message.split(',')
+                            _, filename, node_name = message.split(',')
                             self.send_file(filename, sender_address)
-                            print(f"File {filename} sent to {sender_address}")
+                            print(f"File {filename} sent to {node_name}")
 
                         elif message.startswith("DOWNLOAD_RESPONSE"):
-                            _, filename, response = message.split('~', 2)
-                            self.write_file(filename, response)
-
-                            print(f"File '{filename}' downloaded from {sender_address}")
+                            _, node_name, filename, response = message.split('~', 3)
+                            self.write_file(filename, response, node_name)
 
                         elif message.startswith("PING"):
                             _, start_time = message.split(';')
@@ -242,10 +232,10 @@ class FSNode:
         file_path = os.path.join("NodeFiles", filename)
         file_content = open(file_path, 'rb').read().decode("utf-8")
 
-        sendMessage = "DOWNLOAD_RESPONSE~" + filename + "~" + file_content
+        sendMessage = "DOWNLOAD_RESPONSE~" + self.name + "~" + filename + "~" + file_content
         self.send_node_message(sendMessage, sender_address[0])
 
-    def write_file(self, filename, response):
+    def write_file(self, filename, response, node_name):
         """
         Writes the given response to a file with the specified filename.
 
@@ -258,6 +248,8 @@ class FSNode:
         """
         with open(f"NodeFiles/{filename}", 'wb') as file:
             file.write(response.encode("utf-8"))
+
+        print(f"File {filename} downloaded from {node_name}")
 
     def send_presponse(self, start_time, sender_address):
         """
@@ -298,9 +290,8 @@ class FSNode:
         Returns:
             None
         """
-        print("Enter command (e.g., 'GET <filename>' or 'EXIT' to quit): \n")
         while True:
-            user_input = input()
+            user_input = input("Enter command (e.g., 'GET <filename>' or 'EXIT' to quit): \n")
             if user_input.startswith("GET"):
                 filename = user_input[4:]
                 self.send_tracker_message(f"GET,{filename}")
@@ -321,21 +312,19 @@ class FSNode:
             None
         """
         self.tcp_socket.send((message + "<").encode('utf-8'))
-        print(f"Sent \"{message}\" to {self.tracker_name}")
 
-    def send_node_message(self, message, node_address):
+    def send_node_message(self, message, node):
         """
         Sends a message to a specified node address.
 
         Args:
             message (str): The message to be sent.
-            node_address (str): The address of the node to send the message to.
+            node ((str, str)): The address and the name of the node to send the message to.
 
         Returns:
             None
         """
-        self.udp_socket.sendto((message + "<").encode('utf-8'), (node_address, 9090))
-        print(f"Sent \"{message}\" to {node_address}:9090")
+        self.udp_socket.sendto((message + "<").encode('utf-8'), (node, 9090))
 
 if __name__ == "__main__":
     args = sys.argv[1:]

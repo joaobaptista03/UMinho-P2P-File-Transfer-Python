@@ -57,14 +57,9 @@ class FSTracker:
                 messages = data.split('<')
                 for message in messages:
                     if message:
-                        if node_address[0] in self.ip_to_node_name:
-                            print(f"Received message from {self.ip_to_node_name[node_address[0]]}: {message}")
-
                         if message.startswith("REGISTER") and node_address[0] not in self.ip_to_node_name:
                             _, node_name, files = message.split(',')
                             self.register_node(files, node_address, node_name, node_socket)
-
-                            print(f"Received Node register message from {self.ip_to_node_name[node_address[0]]}: {message}")
                             print(f"Node \"{node_name}\" registered ({node_address[0]}:{node_address[1]}) with the files: {files}")
 
                         elif message.startswith("GET"):
@@ -76,11 +71,12 @@ class FSTracker:
                         elif message.startswith("EXIT"):
                             if node_address[0] in self.node_files:
                                 del self.node_files[node_address[0]]
+                            node_name = self.ip_to_node_name[node_address[0]]
                             del self.ip_to_node_name[node_address[0]]
                             node_socket.close()
                             exitFlag = True
 
-                            print("Node " + self.ip_to_node_name[node_address[0]] + " exited.")
+                            print("Node " + node_name + " exited.")
 
                         else:
                             print("Invalid Message.")
@@ -126,14 +122,11 @@ class FSTracker:
         
         if nodes_with_file:
             node_ip_result = ""
-            node_name_result = ""
             for (node, _) in nodes_with_file:
                 node_ip_result += node + ";"
-                node_name_result += self.ip_to_node_name[node] + ";"
             node_ip_result = node_ip_result[:-1]
-            node_name_result = node_name_result[:-1]
             
-            response = f"FILE_FOUND {filename}~{node_ip_result}~{node_name_result}<"
+            response = f"FILE_FOUND {filename}~{node_ip_result}<"
             node_socket.send(response.encode('utf-8'))
 
             self.update_node_files(node_address, filename)
