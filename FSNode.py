@@ -109,8 +109,8 @@ class FSNode:
                             print(f"Received Tracker register message from {tracker_name}: {message}")
 
                         elif message.startswith("FILE_FOUND"):
-                            (filename, fastest_node) = self.request_download(message)
-                            print(f"File '{filename}' is available at {fastest_node}:9090")
+                            (filename, fastest_node_name) = self.request_download(message)
+                            print(f"File '{filename}' is available at {fastest_node_name}")
 
                         elif message.startswith("FILE_NOT_FOUND"):
                             _, filename = message.split(" ", 1)
@@ -137,14 +137,15 @@ class FSNode:
         _, info = message.split(" ", 1)
         file_and_nodes = info.split("~")
         filename = file_and_nodes[0]
-        nodes = file_and_nodes[1].split(";")
+        nodes_ip = file_and_nodes[1].split(";")
+        nodes_name = file_and_nodes[2].split(";")
 
-        fastest_node = nodes[0]
-        if len(nodes) > 1:
-            fastest_node = self.get_fastest_node(nodes)
+        fastest_node = (nodes_ip[0], 0)
+        if len(nodes_ip) > 1:
+            fastest_node = self.get_fastest_node(nodes_ip)
 
-        self.send_node_message(f"DOWNLOAD_REQUEST,{filename}", fastest_node)
-        return (filename, fastest_node)
+        self.send_node_message(f"DOWNLOAD_REQUEST,{filename}", fastest_node[0])
+        return (filename, nodes_name[fastest_node[1]])
     
     def get_fastest_node(self, nodes):
         """
@@ -169,7 +170,7 @@ class FSNode:
         
         self.nodes_responsetime.clear()
         
-        return fastest_node
+        return (fastest_node, nodes.index(fastest_node))
 
     def handle_node_message(self):
         """

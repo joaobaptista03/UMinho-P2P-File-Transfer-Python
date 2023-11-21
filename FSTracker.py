@@ -125,12 +125,15 @@ class FSTracker:
         nodes_with_file = [(node, files) for node, files in self.node_files.items() if filename in files and node_address[0] != node]
         
         if nodes_with_file:
-            nodeResult = ""
+            node_ip_result = ""
+            node_name_result = ""
             for (node, _) in nodes_with_file:
-                nodeResult += node + ";"
-            nodeResult = nodeResult[:-1]
+                node_ip_result += node + ";"
+                node_name_result += self.ip_to_node_name[node] + ";"
+            node_ip_result = node_ip_result[:-1]
+            node_name_result = node_name_result[:-1]
             
-            response = f"FILE_FOUND {filename}~{nodeResult}<"
+            response = f"FILE_FOUND {filename}~{node_ip_result}~{node_name_result}<"
             node_socket.send(response.encode('utf-8'))
 
             self.update_node_files(node_address, filename)
