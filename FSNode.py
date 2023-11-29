@@ -13,7 +13,7 @@ class FSNode:
         self.ip = None
         self.port = None
         self.files_folder = files_folder
-
+    
         self.tracker_name = None
         self.tracker_ip = tracker_ip
         self.tracker_port = tracker_port
@@ -133,7 +133,6 @@ class FSNode:
             fastest_node = self.get_fastest_node(nodes_ip)
 
         self.send_node_message(f"DOWNLOAD_REQUEST,{filename},{self.name}", fastest_node)
-        print("sent " + f"DOWNLOAD_REQUEST,{filename},{self.name}" + " to " + fastest_node)
         return filename
     
     def get_fastest_node(self, nodes):
