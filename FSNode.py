@@ -3,6 +3,7 @@ import socket
 import sys
 import threading
 import time
+import hashlib
 
 class FSNode:
     """
@@ -189,9 +190,9 @@ class FSNode:
                             print(f"File {filename} sent to {node_name}")
 
                         elif message.startswith("DOWNLOAD_RESPONSE"):
-                            _, filename, response = message.split('~')
-                            self.write_file(filename, response, node_name)
-
+                            _, filename, response, checksum = message.split('~')
+                            self.verify_checksum(filename, response, checksum, node_name)
+                        
                         elif message.startswith("PING"):
                             _, start_time = message.split(';')
                             self.send_presponse(start_time, node_name)
@@ -212,7 +213,7 @@ class FSNode:
 
     def send_file(self, filename, node_name):
         """
-        Sends a file to a specified node.
+        Sends a file and its checksum to a specified node.
 
         Args:
             filename (str): The name of the file to be sent.
@@ -224,8 +225,45 @@ class FSNode:
         file_path = os.path.join("NodeFiles", filename)
         file_content = open(file_path, 'rb').read().decode("utf-8")
 
-        sendMessage = "DOWNLOAD_RESPONSE~" + filename + "~" + file_content
+        sendMessage = "DOWNLOAD_RESPONSE~" + filename + "~" + file_content + "~" + self.calculate_checksum(file_path)
         self.send_node_message(sendMessage, node_name)
+
+    def calculate_checksum(self, file_path):
+        """
+        Calculates the checksum of a file using SHA-256.
+
+        Args:
+            file_path (str): The path to the file.
+
+        Returns:
+            str: The checksum of the file.
+        """
+        sha256 = hashlib.sha256()
+        with open(file_path, 'rb') as file:
+            while chunk := file.read(8192):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+
+    def verify_checksum(self, filename, received_content, expected_checksum, node_name):
+        """
+        Verifies the checksum of the downloaded content.
+
+        Args:
+            filename (str): The name of the downloaded file.
+            received_content (str): The content of the downloaded file.
+            expected_checksum (str): The checksum received from the tracker.
+
+        Returns:
+            bool: True if the checksums match, False otherwise.
+        """
+        sha256 = hashlib.sha256()
+        sha256.update(received_content.encode('utf-8'))
+        calculated_checksum = sha256.hexdigest()
+        
+        if calculated_checksum == expected_checksum:
+            self.write_file(filename, received_content, node_name)
+        else:
+            print(f"File {filename} downloaded from {node_name} is corrupted.")
 
     def write_file(self, filename, response, node_name):
         """
