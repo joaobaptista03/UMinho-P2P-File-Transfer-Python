@@ -1,0 +1,8 @@
+Tracker (Servidor1):
+service named start && python3 FSTracker.py Servidor1.cc2023 9090
+
+Iniciar o Node:
+python3 FSNode.py NodeFiles Servidor1.cc2023 9090
+
+Criar File1 Teste e Iniciar o Node:
+mkdir NodeFiles && echo "Test File" > NodeFiles/File1 && python3 FSNode.py NodeFiles Servidor1.cc2023 9090
