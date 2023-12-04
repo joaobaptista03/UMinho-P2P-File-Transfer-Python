@@ -18,7 +18,10 @@ class FSTracker:
         self.name = tracker_name
         self.port = port
         self.tcp_socket = None
+
         self.node_files = {}
+        self.node_blocks = {}
+
         self.lock = threading.Lock()
 
     def start(self):
@@ -67,6 +70,22 @@ class FSTracker:
                             filename = message[4:]
                             self.send_nodes_to_node(filename, node_name, node_socket)
                             print(f"Nodes that contain the file {filename} sent to {node_name}")
+
+                        elif message.startswith("BLOCK"):
+                            _, filename, block_id = message.split(',')
+                            with self.lock:
+                                if filename in self.node_blocks:
+                                    self.node_blocks[(node_name, filename)].add(block_id)
+                                else:
+                                    self.node_blocks[(node_name, filename)] = {block_id}
+                            print(f"Node {node_name} has block {block_id} of file {filename}")
+
+                        elif message.startswith("DONE"):
+                            _, filename = message.split(',')
+                            with self.lock:
+                                del self.node_blocks[(node_name, filename)]
+                            self.update_node_files(node_name, filename)
+                            print(f"Node {node_name} has finished downloading file {filename}")
 
                         elif message.startswith("EXIT"):
                             with self.lock:
@@ -118,8 +137,6 @@ class FSTracker:
             
             response = f"FILE_FOUND {filename}~{node_ip_result}<"
             node_socket.send(response.encode('utf-8'))
-
-            self.update_node_files(node_name, filename)
 
         else:
             response = f"FILE_NOT_FOUND {filename}<"

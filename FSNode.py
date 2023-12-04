@@ -21,6 +21,7 @@ class FSNode:
     """
     
     def __init__(self, files_folder, tracker_domain, tracker_port):
+        self.MAX_CHAR_BLOCK = 32
         self.name = socket.gethostname() + ".cc2023"
         self.files_folder = files_folder
 
@@ -32,6 +33,7 @@ class FSNode:
 
         self.nodes_responsetime = {}
         self.nodes_lookup = {}
+        self.blocks = {}
 
     def start(self):
         """
@@ -186,12 +188,18 @@ class FSNode:
                         
                         if message.startswith("DOWNLOAD_REQUEST"):
                             _, filename = message.split(',')
-                            self.send_file(filename, node_name)
-                            print(f"File {filename} sent to {node_name}")
+                            self.send_file_blocks(filename, node_name)
 
-                        elif message.startswith("DOWNLOAD_RESPONSE"):
-                            _, filename, response, checksum = message.split('~')
-                            self.verify_checksum(filename, response, checksum, node_name)
+                        elif message.startswith("BLOCK"):
+                            _, filename, block_number, total_blocks, checksum, block_content = message.split('~')
+                            if self.verify_block_checksum(filename, block_number, total_blocks, checksum, block_content):
+                                self.blocks[(filename, int(block_number))] = block_content
+                                self.send_tracker_message(f"BLOCK,{filename},{block_number}")
+
+                            if block_number == total_blocks:
+                                file_content = self.collect_file_blocks(filename, int(total_blocks))
+                                self.send_tracker_message(f"DONE,{filename}")
+                                self.write_file(filename, file_content, node_name)
                         
                         elif message.startswith("PING"):
                             _, start_time = message.split(';')
@@ -211,59 +219,85 @@ class FSNode:
             if not chunk:
                 break
 
-    def send_file(self, filename, node_name):
+    def calculate_total_blocks(self, file_path):
         """
-        Sends a file and its checksum to a specified node.
-
-        Args:
-            filename (str): The name of the file to be sent.
-            node_name (str): The name of the destination node.
-
-        Returns:
-            None
-        """
-        file_path = os.path.join("NodeFiles", filename)
-        file_content = open(file_path, 'rb').read().decode("utf-8")
-
-        sendMessage = "DOWNLOAD_RESPONSE~" + filename + "~" + file_content + "~" + self.calculate_checksum(file_path)
-        self.send_node_message(sendMessage, node_name)
-
-    def calculate_checksum(self, file_path):
-        """
-        Calculates the checksum of a file using SHA-256.
+        Calculates the total number of blocks of a file.
 
         Args:
             file_path (str): The path to the file.
 
         Returns:
-            str: The checksum of the file.
+            int: Total number of blocks of the file.
         """
-        sha256 = hashlib.sha256()
-        with open(file_path, 'rb') as file:
-            while chunk := file.read(8192):
-                sha256.update(chunk)
-        return sha256.hexdigest()
+        file_size = os.path.getsize(file_path)
+        total_blocks = (file_size + self.MAX_CHAR_BLOCK - 1) // self.MAX_CHAR_BLOCK
+        return total_blocks
 
-    def verify_checksum(self, filename, received_content, expected_checksum, node_name):
+    def calculate_checksum(self, block_content):
         """
-        Verifies the checksum of the downloaded content.
+        Calculates the checksum of a block.
 
         Args:
-            filename (str): The name of the downloaded file.
-            received_content (str): The content of the downloaded file.
-            expected_checksum (str): The checksum received from the tracker.
+            block_content (str): The content of the block.
 
         Returns:
-            bool: True if the checksums match, False otherwise.
+            str: The checksum of the block.
         """
         sha256 = hashlib.sha256()
-        sha256.update(received_content.encode('utf-8'))
-        calculated_checksum = sha256.hexdigest()
-        
+        sha256.update(block_content)
+        checksum = sha256.hexdigest()
+        return checksum
+
+    def send_file_blocks(self, filename, node_name):
+        file_path = os.path.join(self.files_folder, filename)
+        total_blocks = self.calculate_total_blocks(file_path)
+
+        with open(file_path, 'rb') as file:
+            block_number = 1
+            while True:
+                block_content = file.read(self.MAX_CHAR_BLOCK)
+                if not block_content:
+                    break
+
+                checksum = self.calculate_checksum(block_content)
+
+                message = f"BLOCK~{filename}~{block_number}~{total_blocks}~{checksum}~{block_content.decode('utf-8')}"
+                self.send_node_message(message, node_name)
+                print(f"Block {block_number}/{total_blocks} of file {filename} sent to {node_name}")
+
+                block_number += 1
+
+        print(f"All blocks of file {filename} sent to {node_name}")
+
+    def verify_block_checksum(self, filename, block_number, total_blocks, expected_checksum, received_content):
+        calculated_checksum = self.calculate_checksum(received_content.encode('utf-8'))
+
         if calculated_checksum == expected_checksum:
-            self.write_file(filename, received_content, node_name)
+            print(f"Block {block_number}/{total_blocks} of file {filename} verified successfully.")
+            return True
         else:
-            print(f"File {filename} downloaded from {node_name} is corrupted.")
+            print(f"Block {block_number}/{total_blocks} of file {filename} is corrupted.")
+            # TODO: Tentar de novo
+            return False
+        
+    def collect_file_blocks(self, filename, total_blocks):
+        """
+        Collects all blocks of a file from the network.
+
+        Args:
+            filename (str): The name of the file to be collected.
+            total_blocks (int): The total number of blocks of the file.
+
+        Returns:
+            str: The content of the file.
+        """
+        file_content = ""
+        for block_number in range(1, total_blocks + 1):
+            while (filename, block_number) not in self.blocks:
+                time.sleep(0.1)
+            file_content += self.blocks[(filename, block_number)]
+            del self.blocks[(filename, block_number)]
+        return file_content
 
     def write_file(self, filename, response, node_name):
         """
