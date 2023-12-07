@@ -18,6 +18,13 @@ class FSNode:
         udp_socket (socket.socket): The UDP socket used for communication with other nodes.
         nodes_responsetime (dict): A dictionary to store the response times of other nodes.
         nodes_lookup (dict): A dictionary to store the IP addresses of other nodes.
+        node_blocks (dict): A dictionary to store the blocks of a node.
+        blocks (dict): A dictionary to store the blocks of a file.
+        current_sending_blocks (dict): A dictionary to store the blocks that are currently being sent.
+
+        TODO's:
+        - If response time ping exceed a certain amount of time, remove node from network after 2nd try;
+        - 
     """
     
     def __init__(self, files_folder, tracker_domain, tracker_port):
@@ -33,7 +40,11 @@ class FSNode:
 
         self.nodes_responsetime = {}
         self.nodes_lookup = {}
+
+        self.node_blocks = {}
         self.blocks = {}
+
+        self.current_sending_blocks = {}
 
     def start(self):
         """
@@ -45,25 +56,25 @@ class FSNode:
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind((self.name, self.tracker_port))
 
-        threading.Thread(target=self.handle_node_message, daemon=True).start()
-        threading.Thread(target=self.handle_tracker_message, daemon=True).start()
+        threading.Thread(target=self.handle_node_chunks, daemon=True).start()
+        threading.Thread(target=self.handle_tracker_chunks, daemon=True).start()
         th = threading.Thread(target=self.listen_for_requests, daemon=True)
         th.start()
         th.join()
 
     def connect_to_tracker(self):
-            """
-            Connects to the tracker server and registers the files of the FSNode.
+        """
+        Connects to the tracker server and registers the files of the FSNode.
 
-            Returns:
-                None
-            """
-            self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.tcp_socket.connect((self.tracker_domain, self.tracker_port))
+        Returns:
+            None
+        """
+        self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcp_socket.connect((self.tracker_domain, self.tracker_port))
 
-            files_str = self.get_files_list_string()
-            self.send_tracker_message(f"REGISTER,{files_str}")
-            print(f"{self.name} registered in {self.tracker_domain} with the files: {files_str}")
+        files_str = self.get_files_list_string()
+        self.send_tracker_message(f"REGISTER,{files_str}")
+        print(f"{self.name} registered in {self.tracker_domain} with the files: {files_str}")
 
     def get_files_list_string(self):
         """
@@ -83,17 +94,17 @@ class FSNode:
 
         return files
 
-    def handle_tracker_message(self):
+    def handle_tracker_chunks(self):
         """
         Handles incoming messages from the tracker.
 
-        Receives messages from the tracker and processes them accordingly.
+        Receives messages from the tracker and processes them, in another thread, accordingly.
         If a FILE_FOUND message is received, it requests the download of the specified file.
         If a FILE_NOT_FOUND message is received, it prints a message indicating that the file was not found.
         If an invalid message is received, it prints a message indicating that the message is invalid.
         """
         data = ""
-        while True:
+        while not self.exit:
             chunk = self.tcp_socket.recv(1024).decode('utf-8')
             data += chunk
 
@@ -101,20 +112,55 @@ class FSNode:
                 messages = data.split('<')
                 for message in messages:
                     if message:
-                        if message.startswith("FILE_FOUND"):
-                            filename = self.request_download(message)
-
-                        elif message.startswith("FILE_NOT_FOUND"):
-                            _, filename = message.split(" ", 1)
-                            print(f"File '{filename}' not found in the network.")
-
-                        else:
-                            print("Invalid Message.")
-
+                        threading.Thread(target=self.handle_tracker_message, args=(message,), daemon=True).start()
                 data = ""
 
             if not chunk:
                 break
+
+    def handle_tracker_message(self, message):
+        if message.startswith("FILE_FOUND"):
+            filename = self.request_download(message)
+
+        elif message.startswith("FILE_NOT_FOUND"):
+            _, filename = message.split(" ", 1)
+            print(f"File '{filename}' not found in the network.")
+
+        elif message.startswith("B_FOUND"):
+            self.register_blocks(message)
+
+        elif message.startswith("B_NOT_FOUND"):
+            _, filename = message.split(' ', 1)
+            print(f"Individual blocks of the file {filename} not found in the network.")
+
+        elif message.startswith("ALREADY_FILE"):
+            _, filename = message.split(' ', 1)
+            print(f"File {filename} already exists.")
+
+        else:
+            print("Invalid Message.")
+
+    def register_blocks(self, message):
+        """
+        Registers the blocks of a file.
+
+        Args:
+            message (str): The message containing the file information and blocks.
+
+        Returns:
+            None
+        """
+        _, info = message.split(" ", 1)
+        file_and_blocks = info.split("~")
+        filename = file_and_blocks[0]
+        blocks = file_and_blocks[1].split(";")
+
+        for block in blocks:
+            node, block_id = block.split(",")
+            if (node, filename) not in self.node_blocks:
+                self.node_blocks[(node, filename)] = {block_id}
+            else:
+                self.node_blocks[(node, filename)].add(block_id)
 
     def request_download(self, message):
         """
@@ -156,7 +202,6 @@ class FSNode:
             time.sleep(0.1)
 
         for node in nodes:
-            print(f"{node}: {self.nodes_responsetime[node]}")
             if self.nodes_responsetime[node] < self.nodes_responsetime[fastest_node]:
                 fastest_node = node
 
@@ -164,11 +209,11 @@ class FSNode:
 
         return fastest_node
 
-    def handle_node_message(self):
+    def handle_node_chunks(self):
         """
         Handles incoming messages from other nodes.
 
-        Receives messages over UDP socket and processes them based on their content.
+        Receives messages over UDP socket and processes them, in another thread, based on their content.
         The messages can be of different types, such as DOWNLOAD_REQUEST, DOWNLOAD_RESPONSE,
         PING, PRESPONSE, or Invalid Message.
 
@@ -176,7 +221,7 @@ class FSNode:
             None
         """
         data = ""
-        while True:
+        while not self.exit:
             chunk, sender_address = self.udp_socket.recvfrom(1024)
             data += chunk.decode('utf-8')
 
@@ -185,39 +230,45 @@ class FSNode:
                 for message in messages:
                     if message:
                         node_name = socket.gethostbyaddr(sender_address[0])[0]
-                        
-                        if message.startswith("DOWNLOAD_REQUEST"):
-                            _, filename = message.split(',')
-                            self.send_file_blocks(filename, node_name)
-
-                        elif message.startswith("BLOCK"):
-                            _, filename, block_number, total_blocks, checksum, block_content = message.split('~')
-                            if self.verify_block_checksum(filename, block_number, total_blocks, checksum, block_content):
-                                self.blocks[(filename, int(block_number))] = block_content
-                                self.send_tracker_message(f"BLOCK,{filename},{block_number}")
-
-                            if block_number == total_blocks:
-                                file_content = self.collect_file_blocks(filename, int(total_blocks))
-                                self.send_tracker_message(f"DONE,{filename}")
-                                self.write_file(filename, file_content, node_name)
-                        
-                        elif message.startswith("PING"):
-                            _, start_time = message.split(';')
-                            self.send_presponse(start_time, node_name)
-
-                            print(f"Ping response sent to {node_name}")
-
-                        elif message.startswith("PRESPONSE"):
-                            _, start_time = message.split(';')
-                            self.set_response_time(float(start_time), node_name)
-
-                        else:
-                            print("Invalid Message.")
+                        threading.Thread(target=self.handle_node_message, args=(message, node_name), daemon=True).start()
 
                 data = ""
 
             if not chunk:
                 break
+
+    def handle_node_message(self, message, node_name):
+        if message.startswith("DOWNLOAD_REQUEST"):
+            _, filename = message.split(',')
+            self.send_file_blocks(filename, node_name)
+
+        elif message.startswith("BLOCK"):
+            _, filename, block_number, total_blocks, checksum, block_content = message.split('~')
+            if self.verify_block_checksum(filename, block_number, total_blocks, checksum, block_content, node_name):
+                self.blocks[(filename, int(block_number))] = block_content
+                self.send_tracker_message(f"GOT_BLOCK,{filename},{block_number}")
+
+            if block_number == total_blocks:
+                file_content = self.collect_file_blocks(filename, int(total_blocks))
+                self.send_tracker_message(f"DONE,{filename}")
+                self.write_file(filename, file_content, node_name)
+        
+        elif message.startswith("CORRUPTED_BLOCK"):
+            _, filename, block_number, total_blocks = message.split(',')
+            self.send_file_block(node_name, filename, block_number, total_blocks, checksum, block_content)
+        
+        elif message.startswith("PING"):
+            _, start_time = message.split(';')
+            self.send_presponse(start_time, node_name)
+
+            print(f"Ping response sent to {node_name}")
+
+        elif message.startswith("PRESPONSE"):
+            _, start_time = message.split(';')
+            self.set_response_time(float(start_time), node_name)
+
+        else:
+            print("Invalid Message.")
 
     def calculate_total_blocks(self, file_path):
         """
@@ -260,6 +311,7 @@ class FSNode:
                     break
 
                 checksum = self.calculate_checksum(block_content)
+                self.current_sending_blocks[(filename, block_number)] = (block_content, checksum)
 
                 message = f"BLOCK~{filename}~{block_number}~{total_blocks}~{checksum}~{block_content.decode('utf-8')}"
                 self.send_node_message(message, node_name)
@@ -269,15 +321,24 @@ class FSNode:
 
         print(f"All blocks of file {filename} sent to {node_name}")
 
-    def verify_block_checksum(self, filename, block_number, total_blocks, expected_checksum, received_content):
+    def send_file_block(self, node_name, filename, block_number, total_blocks):
+        block_content = self.current_sending_blocks[(filename, int(block_number))][0]
+        checksum = self.current_sending_blocks[(filename, int(block_number))][1]
+
+        message = f"BLOCK~{filename}~{block_number}~{total_blocks}~{checksum}~{block_content.decode('utf-8')}"
+        self.send_node_message(message, node_name)
+
+        print(f"Block {block_number}/{total_blocks} of file {filename} sent again to {node_name}")
+
+    def verify_block_checksum(self, filename, block_number, total_blocks, expected_checksum, received_content, node_name):
         calculated_checksum = self.calculate_checksum(received_content.encode('utf-8'))
 
         if calculated_checksum == expected_checksum:
             print(f"Block {block_number}/{total_blocks} of file {filename} verified successfully.")
             return True
         else:
-            print(f"Block {block_number}/{total_blocks} of file {filename} is corrupted.")
-            # TODO: Tentar de novo
+            print(f"Block {block_number}/{total_blocks} of file {filename} is corrupted, trying again!")
+            self.send_node_message(f"CORRUPTED_BLOCK,{filename},{block_number},{total_blocks}", node_name)
             return False
         
     def collect_file_blocks(self, filename, total_blocks):
@@ -311,7 +372,7 @@ class FSNode:
         Returns:
         None
         """
-        with open(f"NodeFiles/{filename}", 'wb') as file:
+        with open(f"{self.files_folder}/{filename}", 'wb') as file:
             file.write(response.encode("utf-8"))
 
         print(f"File {filename} downloaded from {node_name}")
@@ -358,16 +419,16 @@ class FSNode:
         Returns:
             None
         """
-        while True:
+        while not self.exit:
             user_input = input("Enter command (e.g., 'GET <filename>' or 'EXIT' to quit): \n")
             if user_input.startswith("GET"):
                 filename = user_input[4:]
                 self.send_tracker_message(f"GET,{filename}")
 
             elif user_input.upper() == "EXIT":
+                self.exit = True
                 self.send_tracker_message("EXIT")
                 self.udp_socket.close()
-                break
 
     def send_tracker_message(self, message):
         """
