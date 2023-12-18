@@ -21,6 +21,7 @@ class FSNode:
         node_blocks (dict): A dictionary to store the blocks of a node.
         blocks (dict): A dictionary to store the blocks of a file.
         current_sending_blocks (dict): A dictionary to store the blocks that are currently being sent.
+        exit (bool): A boolean value indicating whether the node should exit or not.
 
         TODO's:
         - If response time ping exceed a certain amount of time, remove node from network after 2nd try;
@@ -45,6 +46,8 @@ class FSNode:
         self.blocks = {}
 
         self.current_sending_blocks = {}
+
+        self.exit = False
 
     def start(self):
         """
